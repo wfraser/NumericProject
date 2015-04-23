@@ -86,18 +86,6 @@ public:
     }
 
 private:
-    static void ForEachPlace(std::function<void(int index, TNum place)> fn)
-    {
-        for (int i = 0; i < sizeof(TNum) * 8 / 4; i++)
-        {
-            TNum offset = i * 4;
-            TNum mask = 0xF << offset;
-            TNum place = (m_value & mask) >> offset;
-
-            fn(i, place);
-        }
-    }
-
     void Init(TNum value)
     {
         // Special case for small values.
