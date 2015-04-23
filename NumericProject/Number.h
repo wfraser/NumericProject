@@ -7,19 +7,63 @@
 #include <algorithm>
 #include <assert.h>
 
+class IPrintDecimalNumber
+{
+public:
+    virtual void Print(std::ostream& out, bool leadingZeroes = false) const = 0;
+};
+
 template <typename T>
 class ICheckForOverflow
 {
 public:
     // Return the overflow amount and clear it.
-    virtual T GetOverflow() = 0;
+    virtual T GetAndClearOverflow() = 0;
 
     // Return the overflow amount.
     virtual T PeekOverflow() const = 0;
 };
 
+template <typename T>
+class ISegmentedNumber
+{
+public:
+    virtual T GetWord(size_t index) const = 0;
+    virtual T SetWord(size_t index, const T& value) = 0;
+    virtual size_t GetWordCount() const = 0;
+    virtual void Resize(size_t newSize) = 0;
+    virtual void SetOverflow(const T& value) = 0;
+    virtual T GetOverflowSegment() const = 0;
+    virtual bool IsZero() const = 0;
+
+protected:
+    void Add(const ISegmentedNumber& x, const ISegmentedNumber& y, ISegmentedNumber& result)
+    {
+        // Result must be either zero, or an alias of x.
+        assert((&result == &x) || result.IsZero());
+
+        result.Resize(std::max(x.GetWordCount(), y.GetWordCount()));
+
+        T carry = 0;
+        for (size_t i = 0, n = std::max(x.GetWordCount(), y.GetWordCount()); i < n; i++)
+        {
+            T xn = (i < x.GetWordCount()) ? x.GetWord(i) : 0;
+            T yn = (i < y.GetWordCount()) ? y.GetWord(i) : 0;
+            T rn = xn + yn + carry;
+
+            carry = result.SetWord(i, rn);
+        }
+
+        carry += x.GetOverflowSegment() + y.GetOverflowSegment();
+        result.SetOverflow(carry);
+    }
+};
+
 template <typename TNum>
-class BCD : public ICheckForOverflow < BCD<TNum> >
+class BCD :
+    public IPrintDecimalNumber,
+    public ICheckForOverflow < BCD<TNum> >,
+    protected ISegmentedNumber< TNum >
 {
 public:
     BCD() :
@@ -56,14 +100,16 @@ public:
         return !operator==(other);
     }
 
+    //
+    // IPrintDecimalNumber
+    //
+
     void Print(std::ostream& out, bool leadingZeroes = false) const
     {
         bool havePrinted = leadingZeroes;
-        for (int i = sizeof(TNum) * 8 / 4 - 1; i >= 0; i--)
+        for (size_t i = GetWordCount(); i >= 1; i--)
         {
-            TNum offset = i * 4;
-            TNum mask = 0xF << offset;
-            TNum place = (m_value & mask) >> offset;
+            TNum place = GetWord(i - 1);
 
             if (havePrinted || (place != 0))
             {
@@ -73,16 +119,88 @@ public:
         };
     }
 
-    virtual BCD GetOverflow()
+    //
+    // ICheckForOverflow:
+    //
+
+    virtual BCD GetAndClearOverflow()
     {
-        TNum temp = m_overflow;
+        BCD overflow = GetOverflowSegment();
         m_overflow = 0;
-        return temp;
+        return overflow;
     }
 
     virtual BCD PeekOverflow() const
     {
         return m_overflow;
+    }
+
+protected:
+    //
+    // ISegmentedNumber
+    //
+
+    virtual TNum GetWord(size_t index) const
+    {
+        if (index > sizeof(TNum) * 8 / 4)
+            throw std::invalid_argument("index is too high");
+
+        TNum offset = 4 * index;
+        return (m_value & (0xF << offset)) >> offset;
+    }
+
+    virtual TNum SetWord(size_t index, const TNum& value)
+    {
+        if (index > sizeof(TNum) * 8 / 4)
+            throw std::invalid_argument("index is too high");
+
+        TNum offset = 4 * index;
+        TNum valueCorrected = value;
+
+        TNum carry = 0;
+        if (valueCorrected >= 10)
+        {
+            carry = valueCorrected / 10;
+            valueCorrected %= 10;
+        }
+
+        m_value &= ~(0xF << offset);
+        m_value |= valueCorrected << offset;
+
+        return carry;
+    }
+
+    virtual void SetOverflow(const TNum& value)
+    {
+        m_overflow = value;
+    }
+
+    virtual size_t GetWordCount() const
+    {
+        return BCD<TNum>::GetStaticWordCount();
+    }
+
+    static size_t GetStaticWordCount()
+    {
+        return sizeof(TNum) * 8 / 4;
+    }
+
+    virtual void Resize(size_t newSize)
+    {
+        if (newSize != GetWordCount())
+        {
+            throw std::logic_error("class BCD cannot be resized.");
+        }
+    }
+
+    virtual TNum GetOverflowSegment() const
+    {
+        return m_overflow;
+    }
+
+    virtual bool IsZero() const
+    {
+        return (m_value == 0) && (m_overflow == 0);
     }
 
 private:
@@ -101,7 +219,7 @@ private:
 
         TNum placeValue = 0;
         TNum nextPlaceValue = 10;
-        for (int i = 0; i < sizeof(TNum) * 8 / 4; i++)
+        for (size_t i = 0; i < GetWordCount(); i++)
         {
             TNum place = value % nextPlaceValue;
             value -= place;
@@ -109,7 +227,7 @@ private:
             if (placeValue > 0)
                 place /= placeValue;
 
-            m_value |= place << (4 * i);
+            SetWord(i, place);
 
             if (value == 0)
                 break;
@@ -122,44 +240,14 @@ private:
             m_overflow = value / placeValue;
     }
 
-    static void Add(const BCD& x, const BCD& y, BCD& result)
-    {
-        // Result must be either zero, or an alias of x.
-        assert((&result == &x)
-            || ((result.m_value == 0) && (result.m_overflow == 0)));
-
-        TNum carry = 0;
-        for (int i = 0; i < sizeof(TNum) * 8 / 4; i++)
-        {
-            TNum offset = 4 * i;
-            TNum mask = 0xF << offset;
-            TNum digitX = (x.m_value & mask) >> offset;
-            TNum digitY = (y.m_value & mask) >> offset;
-            TNum digitResult = digitX + digitY + carry;
-            if (digitResult >= 10)
-            {
-                carry = digitResult / 10;
-                digitResult %= 10;
-            }
-            else
-            {
-                carry = 0;
-            }
-
-            result.m_value &= ~mask;
-            result.m_value |= digitResult << offset;
-        }
-
-        result.m_overflow = x.m_overflow + y.m_overflow + carry;
-    }
-
 private:
     TNum m_value;
     TNum m_overflow;
 };
 
 template <typename TNum>
-class BigInt
+class BigInt :
+    protected ISegmentedNumber<TNum>
 {
 public:
     BigInt()
@@ -169,29 +257,16 @@ public:
 
     BigInt(TNum value)
     {
+        TNum carry = CheckOverflowImpl(value);
         m_words.push_back(value);
-        CheckOverflow();
+        if (carry != 0)
+            m_words.push_back(carry);
+        m_words.push_back(0);
     }
 
-    template <typename X>
-    typename std::enable_if<std::is_same<BCD<X>, TNum>::value, void>::type
-        Print(std::ostream& out) const
+    void Print(std::ostream& out) const
     {
-        bool first = true;
-        for (std::vector<BCD<X>>::const_reverse_iterator it = m_words.crbegin() + 1, end = m_words.crend(); it != end; ++it)
-        {
-            it->Print(out, !first);
-            first = false;
-        }
-    }
-
-    template <typename X>
-    typename std::enable_if<!std::is_same<BCD<X>, TNum>::value, void>::type
-        Print(std::ostream& out) const
-    {
-        // convert to a BigInt<BCD<TNum>> somehow
-        //TODO
-        out << "BigInt::Print is not implemented.";
+        PrintImpl<TNum>(out);
     }
 
     BigInt& operator+=(const BigInt& other)
@@ -207,48 +282,76 @@ public:
         return result;
     }
 
-private:
-    void CheckOverflow(size_t startAt = 0)
-    {
-        for (size_t i = startAt, n = m_words.size(); i < n; i++)
-        {
-            TNum& word = m_words[i];
-            TNum overflow = GetOverflow(word);
-            if (overflow == 0)
-            {
-                break;
-            }
-            else
-            {
-                if (i == n - 1)
-                    m_words.push_back(0);
+protected:
+    //
+    // ISegmentedNumber
+    //
 
-                m_words[i + 1] += overflow;
-            }
+    virtual TNum GetWord(size_t index) const
+    {
+        return m_words[index];
+    }
+
+    virtual TNum SetWord(size_t index, const TNum& value)
+    {
+        TNum valueCorrected = value;
+        TNum carry = CheckOverflowImpl(valueCorrected);
+        m_words[index] = valueCorrected;
+        return carry;
+    }
+
+    virtual void SetOverflow(const TNum& value)
+    {
+        if (value != 0)
+        {
+            assert(m_words.back() == 0);
+            m_words.back() = value;
+            m_words.push_back(0);
+        }
+    }
+
+    virtual size_t GetWordCount() const
+    {
+        return m_words.size();
+    }
+
+    virtual void Resize(size_t newSize)
+    {
+        if (m_words.size() < newSize)
+        {
+            throw std::logic_error("Cannot shrink class BigInt.");
         }
 
-        if (m_words.back() != 0)
-            m_words.push_back(0);
+        m_words.resize(newSize);
     }
 
-    template <typename T>
-    typename std::enable_if<
-        std::is_base_of<ICheckForOverflow<TNum>, T>::value,
-        TNum>::type
-        GetOverflow(T& num)
+    virtual TNum GetOverflowSegment() const
     {
-        return num.GetOverflow();
+        // BigInt doesn't have an overflow segment; it resizes itself instead.
+        return 0;
     }
 
-    template <typename T>
-    typename std::enable_if<
-        !std::is_base_of<ICheckForOverflow<TNum>, T>::value,
-        TNum>::type
-        GetOverflow(T& num)
+    virtual bool IsZero() const
+    {
+        return (m_words.size() == 1) && (m_words.front() == 0);
+    }
+
+private:
+    template <typename X>
+    typename std::enable_if<std::is_base_of<ICheckForOverflow<X>, X>::value, X>::type
+        CheckOverflowImpl(X& num)
+    {
+        // If TNum implements ICheckForOverflow, use its method instead.
+        return num.GetAndClearOverflow();
+    }
+
+    template <typename X>
+    typename std::enable_if<!std::is_base_of<ICheckForOverflow<X>, X>::value, X>::type
+        CheckOverflowImpl(X& num)
     {
         // For primitive numeric types, we leave the top bit open as a carry bit.
-        const int bits = sizeof(T) * 8 - 1;
-        const T mask = static_cast<T>(1) << bits;
+        static const int bits = sizeof(X) * 8 - 1;
+        static const X mask = static_cast<X>(1) << bits;
 
         if (0 != (num & mask))
         {
@@ -261,27 +364,27 @@ private:
         }
     }
 
-    static void Add(const BigInt& x, const BigInt& y, BigInt& result)
+    template <typename X>
+    typename std::enable_if<std::is_base_of<IPrintDecimalNumber, X>::value, void>::type
+        PrintImpl(std::ostream& out) const
     {
-        // Result must be either zero, or an alias of x.
-        assert((&result == &x)
-            || ((result.m_words.size() == 1) && (result.m_words[0] == 0)));
-
-        if (result.m_words.size() == 1)
-            result.m_words.resize(std::max(x.m_words.size(), y.m_words.size()));
-
-        for (size_t i = 0, n = std::max(x.m_words.size(), y.m_words.size()); i < n; i++)
+        bool first = true;
+        for (std::vector<TNum>::const_reverse_iterator it = m_words.crbegin() + 1, end = m_words.crend(); it != end; ++it)
         {
-            TNum xn = (i < x.m_words.size()) ? x.m_words[i] : 0;
-            TNum yn = (i < y.m_words.size()) ? y.m_words[i] : 0;
-
-            result.m_words[i] = xn + yn;
-
-            result.CheckOverflow(i);
+            it->Print(out, !first);
+            first = false;
         }
+    }
+
+    template <typename X>
+    typename std::enable_if<!std::is_base_of<IPrintDecimalNumber, X>::value, void>::type
+        PrintImpl(std::ostream& out) const
+    {
+        // convert to a BigInt<BCD<TNum>> somehow
+        //TODO
+        out << "BigInt::Print is not implemented.";
     }
 
 private:
     std::vector<TNum> m_words;
 };
-
