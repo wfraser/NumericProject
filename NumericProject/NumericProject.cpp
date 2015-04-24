@@ -32,7 +32,7 @@ int wmain(int argc, wchar_t* argv[])
     BigInt<BCD<uint16_t>> xyz(0xFF7F);
     xyz += BCD<uint16_t>(0xFF7F);
 
-    xyz.Print(out);
+    xyz.Print<10>(out);
     assert(out.str() == "130814");
     out.str("");
 
