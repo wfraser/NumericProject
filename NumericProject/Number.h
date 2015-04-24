@@ -7,7 +7,8 @@
 #include <algorithm>
 #include <assert.h>
 
-class IPrintDecimalNumber
+template <int Base>
+class IPrintNumberInBase
 {
 public:
     virtual void Print(std::ostream& out, bool leadingZeroes = false) const = 0;
@@ -59,13 +60,21 @@ protected:
     }
 };
 
-template <typename TNum>
+//
+// Binary Coded Digits
+//
+// a.k.a. Binary Coded Decimal, but this one can be used for any number base.
+//
+template <typename TNum, int Base = 10>
 class BCD :
-    public IPrintDecimalNumber,
-    public ICheckForOverflow < BCD<TNum> >,
-    protected ISegmentedNumber< TNum >
+    public IPrintNumberInBase<Base>,
+    public ICheckForOverflow<BCD<TNum, Base>>,
+    protected ISegmentedNumber<TNum>
 {
 public:
+    static const size_t BitsPerDigit = CeilLog2<Base + 1>::value;
+    static const size_t DigitsPerWord = sizeof(TNum) * 8 / BitsPerDigit;
+
     BCD() :
         m_value(0),
         m_overflow(0)
@@ -101,7 +110,7 @@ public:
     }
 
     //
-    // IPrintDecimalNumber
+    // IPrintNumberInBase
     //
 
     void Print(std::ostream& out, bool leadingZeroes = false) const
@@ -142,29 +151,30 @@ protected:
 
     virtual TNum GetWord(size_t index) const
     {
-        if (index > sizeof(TNum) * 8 / 4)
+        if (index > GetWordCount())
             throw std::invalid_argument("index is too high");
 
-        TNum offset = 4 * index;
-        return (m_value & (0xF << offset)) >> offset;
+        TNum offset = BitsPerDigit * index;
+        TNum mask = BitsMask<BitsPerDigit>::value << offset;
+        return (m_value & mask) >> offset;
     }
 
     virtual TNum SetWord(size_t index, const TNum& value)
     {
-        if (index > sizeof(TNum) * 8 / 4)
+        if (index > GetWordCount())
             throw std::invalid_argument("index is too high");
 
-        TNum offset = 4 * index;
+        TNum offset = BitsPerDigit * index;
         TNum valueCorrected = value;
 
         TNum carry = 0;
-        if (valueCorrected >= 10)
+        if (valueCorrected >= Base)
         {
-            carry = valueCorrected / 10;
-            valueCorrected %= 10;
+            carry = valueCorrected / Base;
+            valueCorrected %= Base;
         }
 
-        m_value &= ~(0xF << offset);
+        m_value &= ~(BitsMask<BitsPerDigit>::value << offset);
         m_value |= valueCorrected << offset;
 
         return carry;
@@ -177,12 +187,7 @@ protected:
 
     virtual size_t GetWordCount() const
     {
-        return BCD<TNum>::GetStaticWordCount();
-    }
-
-    static size_t GetStaticWordCount()
-    {
-        return sizeof(TNum) * 8 / 4;
+        return DigitsPerWord;
     }
 
     virtual void Resize(size_t newSize)
@@ -207,7 +212,7 @@ private:
     void Init(TNum value)
     {
         // Special case for small values.
-        if (value < 10)
+        if (value < Base)
         {
             m_value = value;
             m_overflow = 0;
@@ -218,8 +223,8 @@ private:
         m_overflow = 0;
 
         TNum placeValue = 0;
-        TNum nextPlaceValue = 10;
-        for (size_t i = 0; i < GetWordCount(); i++)
+        TNum nextPlaceValue = Base;
+        for (size_t i = 0, n = GetWordCount(); i < n; i++)
         {
             TNum place = value % nextPlaceValue;
             value -= place;
@@ -233,7 +238,7 @@ private:
                 break;
 
             placeValue = nextPlaceValue;
-            nextPlaceValue *= 10;
+            nextPlaceValue *= Base;
         }
 
         if (value != 0)
@@ -264,9 +269,10 @@ public:
         m_words.push_back(0);
     }
 
+    template <int NumberBase = 10>
     void Print(std::ostream& out) const
     {
-        PrintImpl<TNum>(out);
+        PrintImpl<TNum, NumberBase>(out);
     }
 
     BigInt& operator+=(const BigInt& other)
@@ -364,8 +370,8 @@ private:
         }
     }
 
-    template <typename X>
-    typename std::enable_if<std::is_base_of<IPrintDecimalNumber, X>::value, void>::type
+    template <typename X, int Base>
+    typename std::enable_if<std::is_base_of<IPrintNumberInBase<Base>, X>::value, void>::type
         PrintImpl(std::ostream& out) const
     {
         bool first = true;
@@ -376,8 +382,8 @@ private:
         }
     }
 
-    template <typename X>
-    typename std::enable_if<!std::is_base_of<IPrintDecimalNumber, X>::value, void>::type
+    template <typename X, int Base>
+    typename std::enable_if<!std::is_base_of<IPrintNumberInBase<Base>, X>::value, void>::type
         PrintImpl(std::ostream& out) const
     {
         // convert to a BigInt<BCD<TNum>> somehow
@@ -387,4 +393,42 @@ private:
 
 private:
     std::vector<TNum> m_words;
+};
+
+//
+// Compile-time constant Ceil(Log2(x)) values :)
+//
+
+template <size_t N>
+struct CeilLog2
+{
+    enum { value = 1 + CeilLog2<(N >> 1)>::value };
+};
+
+template <>
+struct CeilLog2<0>
+{
+    // Log2(0) is undefined.
+};
+
+template <>
+struct CeilLog2<1>
+{
+    enum { value = 1 };
+};
+
+//
+// Compile-time constant bit mask
+//
+
+template <size_t N>
+struct BitsMask
+{
+    enum { value = BitsMask<N - 1>::value << 1 | 1 };
+};
+
+template <>
+struct BitsMask<0>
+{
+    enum { value = 0 };
 };
