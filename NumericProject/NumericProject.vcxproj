@@ -82,6 +82,10 @@
     <ClCompile Include="NumericProject.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BaseInterfaces.h" />
+    <ClInclude Include="BCD.h" />
+    <ClInclude Include="BitsMask.h" />
+    <ClInclude Include="CeilLog2.h" />
     <ClInclude Include="Number.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

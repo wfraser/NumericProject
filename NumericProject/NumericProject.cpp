@@ -1,7 +1,9 @@
 #include <iostream>
 #include <cstdint>
 #include <sstream>
+
 #include "Number.h"
+#include "BCD.h"
 
 using namespace std;
 
