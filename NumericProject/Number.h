@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <functional>
 #include <algorithm>
+#include <memory>
 #include <assert.h>
 
 template <int Base>
@@ -25,37 +26,64 @@ public:
     virtual T PeekOverflow() const = 0;
 };
 
-template <typename T>
+template <typename TNum>
 class ISegmentedNumber
 {
 public:
-    virtual T GetWord(size_t index) const = 0;
-    virtual T SetWord(size_t index, const T& value) = 0;
+    virtual TNum GetWord(size_t index) const = 0;
+    virtual TNum SetWord(size_t index, const TNum& value) = 0;
     virtual size_t GetWordCount() const = 0;
     virtual void Resize(size_t newSize) = 0;
-    virtual void SetOverflow(const T& value) = 0;
-    virtual T GetOverflowSegment() const = 0;
+    virtual void SetOverflow(const TNum& value) = 0;
+    virtual TNum GetOverflowSegment() const = 0;
     virtual bool IsZero() const = 0;
 
 protected:
-    void Add(const ISegmentedNumber& x, const ISegmentedNumber& y, ISegmentedNumber& result)
+    static ISegmentedNumber* MakeZero();
+
+    //
+    // result = x + y
+    //
+    static void Add(const ISegmentedNumber& x, const ISegmentedNumber& y, ISegmentedNumber& result)
     {
         // Result must be either zero, or an alias of x.
         assert((&result == &x) || result.IsZero());
 
         result.Resize(std::max(x.GetWordCount(), y.GetWordCount()));
 
-        T carry = 0;
+        TNum carry = 0;
         for (size_t i = 0, n = std::max(x.GetWordCount(), y.GetWordCount()); i < n; i++)
         {
-            T xn = (i < x.GetWordCount()) ? x.GetWord(i) : 0;
-            T yn = (i < y.GetWordCount()) ? y.GetWord(i) : 0;
-            T rn = xn + yn + carry;
+            TNum xn = (i < x.GetWordCount()) ? x.GetWord(i) : 0;
+            TNum yn = (i < y.GetWordCount()) ? y.GetWord(i) : 0;
+            TNum rn = xn + yn + carry;
 
             carry = result.SetWord(i, rn);
         }
 
         carry += x.GetOverflowSegment() + y.GetOverflowSegment();
+        result.SetOverflow(carry);
+    }
+
+    //
+    // result = x * y
+    //
+    static void Multiply(const TNum& word, const ISegmentedNumber& x, ISegmentedNumber& result)
+    {
+        assert((&result == &x) || result.IsZero());
+
+        result.Resize(x.GetWordCount());
+
+        TNum carry = 0;
+        for (size_t i = 0, n = x.GetWordCount(); i < n; i++)
+        {
+            TNum xn = x.GetWord(i);
+            TNum rn = xn * word + carry;
+
+            carry = result.SetWord(i, rn);
+        }
+
+        carry += word * x.GetOverflowSegment();
         result.SetOverflow(carry);
     }
 };
@@ -92,10 +120,38 @@ public:
         return *this;
     }
 
-    BCD operator+(const BCD& other)
+    BCD operator+(const BCD& other) const
     {
         BCD result(0);
         Add(*this, other, result);
+        return result;
+    }
+
+    BCD& operator*=(const TNum& word)
+    {
+        Multiply(word, *this, *this);
+        return *this;
+    }
+
+    BCD operator*(const TNum& word) const
+    {
+        BCD result(0);
+        Multiply(word, *this, result);
+        return result;
+    }
+
+    BCD& operator*=(const BCD& other)
+    {
+        assert(m_overflow == 0);
+        Multiply(*this, other, *this);
+        return *this;
+    }
+
+    BCD operator*(const BCD& other) const
+    {
+        assert(m_overflow == 0);
+        BCD result(0);
+        Multiply(*this, other, result);
         return result;
     }
 
@@ -209,6 +265,24 @@ protected:
     }
 
 private:
+    static void Multiply(const BCD& x, const BCD& y, BCD& result)
+    {
+        assert((&x == &result) || result.IsZero());
+
+        TNum placeValue = 1;
+        for (size_t i = 0, n = x.GetWordCount(); i <= n; i++, placeValue *= Base)
+        {
+            TNum xword = (i == n) ? x.GetOverflowSegment() : x.GetWord(i);
+            if (xword != 0)
+            {
+                BCD partialResult(0);
+                ISegmentedNumber<TNum>::Multiply(xword, y, partialResult);
+                ISegmentedNumber<TNum>::Multiply(placeValue, partialResult, partialResult);
+                Add(result, partialResult, result);
+            }
+        }
+    }
+
     void Init(TNum value)
     {
         // Special case for small values.
@@ -266,7 +340,6 @@ public:
         m_words.push_back(value);
         if (carry != 0)
             m_words.push_back(carry);
-        m_words.push_back(0);
     }
 
     template <int NumberBase = 10>
@@ -285,6 +358,19 @@ public:
     {
         BigInt result;
         Add(*this, other, result);
+        return result;
+    }
+
+    BigInt& operator*=(const TNum& word)
+    {
+        Multiply(word, *this, *this);
+        return *this;
+    }
+
+    BigInt& operator*(const TNum& word)
+    {
+        BigInt result;
+        Multiply(word, *this, result);
         return result;
     }
 
@@ -310,9 +396,7 @@ protected:
     {
         if (value != 0)
         {
-            assert(m_words.back() == 0);
-            m_words.back() = value;
-            m_words.push_back(0);
+            m_words.push_back(value);
         }
     }
 
@@ -323,7 +407,7 @@ protected:
 
     virtual void Resize(size_t newSize)
     {
-        if (m_words.size() < newSize)
+        if (newSize < m_words.size())
         {
             throw std::logic_error("Cannot shrink class BigInt.");
         }
@@ -375,7 +459,7 @@ private:
         PrintImpl(std::ostream& out) const
     {
         bool first = true;
-        for (std::vector<TNum>::const_reverse_iterator it = m_words.crbegin() + 1, end = m_words.crend(); it != end; ++it)
+        for (std::vector<TNum>::const_reverse_iterator it = m_words.crbegin(), end = m_words.crend(); it != end; ++it)
         {
             it->Print(out, !first);
             first = false;
@@ -386,9 +470,28 @@ private:
     typename std::enable_if<!std::is_base_of<IPrintNumberInBase<Base>, X>::value, void>::type
         PrintImpl(std::ostream& out) const
     {
-        // convert to a BigInt<BCD<TNum>> somehow
-        //TODO
-        out << "BigInt::Print is not implemented.";
+        // convert to a BCD-based BigNum
+
+        BigInt<BCD<TNum, Base>> converted;
+        BigInt<BCD<TNum, Base>> placeValue = 1;
+
+        for (const TNum& word : m_words)
+        {
+            TNum bitMask = 1;
+            for (size_t bit = 0; bit < sizeof(TNum) * 8 - 1; bit++)
+            {
+                if ((word & bitMask) != 0)
+                {
+                    converted += placeValue;
+                }
+
+                bitMask <<= 1;
+                placeValue *= 2;
+            }
+        }
+
+        // Now this will call the other implementation.
+        converted.Print(out);
     }
 
 private:
