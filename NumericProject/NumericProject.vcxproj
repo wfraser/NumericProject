@@ -86,7 +86,7 @@
     <ClInclude Include="BCD.h" />
     <ClInclude Include="BitsMask.h" />
     <ClInclude Include="CeilLog2.h" />
-    <ClInclude Include="Number.h" />
+    <ClInclude Include="BigInt.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

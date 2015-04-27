@@ -2,8 +2,7 @@
 #include <cstdint>
 #include <sstream>
 
-#include "Number.h"
-#include "BCD.h"
+#include "BigInt.h"
 
 using namespace std;
 

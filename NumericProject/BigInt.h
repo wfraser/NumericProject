@@ -11,9 +11,7 @@
 #include "CeilLog2.h"
 #include "BitsMask.h"
 #include "BaseInterfaces.h"
-
-template <typename TNum, int Base>
-class BCD;
+#include "BCD.h"
 
 template <typename TNum>
 class BigInt :
