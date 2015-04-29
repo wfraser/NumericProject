@@ -6,9 +6,9 @@
 
 using namespace std;
 
-int wmain(int argc, wchar_t* argv[])
+int main(int argc, char* argv[])
 {
-    if (false)
+#if 0
     {
         // This would fail because it will overflow the overflow segment.
         // It involves doing 100 * 5 as the last step, which is too big for a uint8_t.
@@ -17,6 +17,7 @@ int wmain(int argc, wchar_t* argv[])
         BCD<uint8_t> bb(0xFF);
         BCD<uint8_t> cc = aa * bb;
     }
+#endif
 
     // Test on BCD<uint8_t>
     {
@@ -69,5 +70,6 @@ int wmain(int argc, wchar_t* argv[])
         assert(out.str() == "130814");
     }
 
+    cout << "Done\n";
     return 0;
 }

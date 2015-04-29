@@ -32,34 +32,34 @@ public:
 
     BCD& operator+=(const BCD& other)
     {
-        Add(*this, other, *this);
+        this->Add(*this, other, *this);
         return *this;
     }
 
     BCD operator+(const BCD& other) const
     {
         BCD result(0);
-        Add(*this, other, result);
+        this->Add(*this, other, result);
         return result;
     }
 
     BCD& operator*=(const TNum& word)
     {
-        Multiply(word, *this, *this);
+        this->Multiply(word, *this, *this);
         return *this;
     }
 
     BCD operator*(const TNum& word) const
     {
         BCD result(0);
-        Multiply(word, *this, result);
+        this->Multiply(word, *this, result);
         return result;
     }
 
     BCD& operator*=(const BCD& other)
     {
         assert(m_overflow == 0);
-        Multiply(*this, other, *this);
+        this->Multiply(*this, other, *this);
         return *this;
     }
 
@@ -67,7 +67,7 @@ public:
     {
         assert(m_overflow == 0);
         BCD result(0);
-        Multiply(*this, other, result);
+        this->Multiply(*this, other, result);
         return result;
     }
 
@@ -194,7 +194,7 @@ private:
                 BCD partialResult(0);
                 ISegmentedNumber<TNum>::Multiply(xword, y, partialResult);
                 ISegmentedNumber<TNum>::Multiply(placeValue, partialResult, partialResult);
-                Add(result, partialResult, result);
+                BCD::Add(result, partialResult, result);
             }
         }
     }

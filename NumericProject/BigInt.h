@@ -39,27 +39,27 @@ public:
 
     BigInt& operator+=(const BigInt& other)
     {
-        Add(*this, other, *this);
+        this->Add(*this, other, *this);
         return *this;
     }
 
     BigInt operator+(const BigInt& other)
     {
         BigInt result;
-        Add(*this, other, result);
+        this->Add(*this, other, result);
         return result;
     }
 
     BigInt& operator*=(const TNum& word)
     {
-        Multiply(word, *this, *this);
+        this->Multiply(word, *this, *this);
         return *this;
     }
 
     BigInt& operator*(const TNum& word)
     {
         BigInt result;
-        Multiply(word, *this, result);
+        this->Multiply(word, *this, result);
         return result;
     }
 
@@ -148,7 +148,7 @@ private:
         PrintImpl(std::ostream& out) const
     {
         bool first = true;
-        for (std::vector<TNum>::const_reverse_iterator it = m_words.crbegin(), end = m_words.crend(); it != end; ++it)
+        for (typename std::vector<TNum>::const_reverse_iterator it = m_words.crbegin(), end = m_words.crend(); it != end; ++it)
         {
             it->Print(out, !first);
             first = false;
@@ -162,7 +162,7 @@ private:
         // convert to a BCD-based BigNum
 
         BigInt<BCD<TNum, Base>> converted;
-        BigInt<BCD<TNum, Base>> placeValue = 1;
+        BigInt<BCD<TNum, Base>> placeValue(1);
 
         for (const TNum& word : m_words)
         {
