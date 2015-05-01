@@ -4,13 +4,18 @@
 #include "BitsMask.h"
 #include "BaseInterfaces.h"
 
+template <typename TNum, int Base = 10, typename Enable = void>
+class BCD
+{
+};
+
 //
 // Binary Coded Digits
 //
 // a.k.a. Binary Coded Decimal, but this one can be used for any number base.
 //
-template <typename TNum, int Base = 10>
-class BCD :
+template <typename TNum, int Base>
+class BCD<TNum, Base, typename std::enable_if<std::is_unsigned<TNum>::value>::type> :
     public IPrintNumberInBase<Base>,
     public ICheckForOverflow<BCD<TNum, Base>>,
     protected ISegmentedNumber<TNum>
@@ -18,6 +23,7 @@ class BCD :
 public:
     static const size_t BitsPerDigit = CeilLog2<Base + 1>::value;
     static const size_t DigitsPerWord = sizeof(TNum) * 8 / BitsPerDigit;
+    static const TNum MaxWordValue = static_cast<TNum>((1 << BitsPerDigit) - 1);
 
     BCD() :
         m_value(0),
@@ -126,7 +132,7 @@ protected:
         if (index > GetWordCount())
             throw std::invalid_argument("index is too high");
 
-        TNum offset = BitsPerDigit * index;
+        TNum offset = IntCast(BitsPerDigit * index);
         TNum mask = BitsMask<BitsPerDigit>::value << offset;
         return (m_value & mask) >> offset;
     }
@@ -136,7 +142,7 @@ protected:
         if (index > GetWordCount())
             throw std::invalid_argument("index is too high");
 
-        TNum offset = BitsPerDigit * index;
+        TNum offset = IntCast(BitsPerDigit * index);
         TNum valueCorrected = value;
 
         TNum carry = 0;
@@ -233,6 +239,12 @@ private:
 
         if (value != 0)
             m_overflow = value / placeValue;
+    }
+
+    static TNum IntCast(uintmax_t value)
+    {
+        assert(value <= MaxWordValue);
+        return static_cast<TNum>(value);
     }
 
 private:
