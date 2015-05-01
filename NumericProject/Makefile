@@ -1,4 +1,4 @@
-CXXFLAGS+=-std=c++14 -Wall -pedantic
+CXXFLAGS+=-std=c++14 -Wall -Wextra -pedantic
 LDFLAGS+=-Wall
 LDLIBS+=-lstdc++
 
